@@ -17,7 +17,7 @@ public class ExoStatsIntegration {
         ExoStats.BreakScoreEntry breakScore = ExoStats.breakScoreMap.get(block);
 
         if (breakScore != null) {
-            Integer score = breakScore.calculatedScore().apply(player, state);
+            Integer score = breakScore.scoreFunction().apply(player, state, Config.breakScores.get(breakScore.blockOrTag()));
             if (score != 0) { player.awardStat(breakScore.scoreLocation(), score); }
         }
     }

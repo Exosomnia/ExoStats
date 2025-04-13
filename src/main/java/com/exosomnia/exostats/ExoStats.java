@@ -10,8 +10,6 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.stats.Stats;
 import net.minecraft.tags.TagKey;
-import net.minecraft.world.effect.MobEffectInstance;
-import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.npc.AbstractVillager;
@@ -23,13 +21,13 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.alchemy.PotionUtils;
 import net.minecraft.world.item.enchantment.EnchantmentHelper;
-import net.minecraft.world.item.trading.MerchantOffer;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.CocoaBlock;
 import net.minecraft.world.level.block.CropBlock;
 import net.minecraft.world.level.block.NetherWartBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraftforge.common.MinecraftForge;
+import net.minecraftforge.common.util.TriPredicate;
 import net.minecraftforge.event.TagsUpdatedEvent;
 import net.minecraftforge.event.entity.EntityJoinLevelEvent;
 import net.minecraftforge.event.entity.living.AnimalTameEvent;
@@ -39,15 +37,19 @@ import net.minecraftforge.event.level.BlockEvent;
 import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.ModList;
+import net.minecraftforge.fml.ModLoadingContext;
 import net.minecraftforge.fml.common.Mod;
+import net.minecraftforge.fml.config.ModConfig;
 import net.minecraftforge.fml.event.lifecycle.FMLCommonSetupEvent;
 import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
 import net.minecraftforge.registries.DeferredRegister;
 import net.minecraftforge.registries.RegistryObject;
+import org.apache.commons.lang3.function.TriFunction;
 
 import java.util.HashMap;
 import java.util.Map;
 import java.util.function.BiFunction;
+import java.util.function.BiPredicate;
 
 // The value here should match an entry in the META-INF/mods.toml file
 @Mod(ExoStats.MODID)
@@ -71,7 +73,9 @@ public class ExoStats
     public static final RegistryObject<ResourceLocation> FISHING_SCORE = CUSTOM_STATS_REGISTER.register("fishing_score", () -> ResourceLocation.fromNamespaceAndPath(MODID, "fishing_score"));
     public static final RegistryObject<ResourceLocation> HUSBANDRY_SCORE = CUSTOM_STATS_REGISTER.register("husbandry_score", () -> ResourceLocation.fromNamespaceAndPath(MODID, "husbandry_score"));
 
-    record BreakScoreEntry(String blockOrTag, ResourceLocation scoreLocation, BiFunction<Player, BlockState, Integer> calculatedScore) {}
+    record BreakScoreEntry(String blockOrTag, ResourceLocation scoreLocation, TriFunction<Player, BlockState, Integer, Integer> scoreFunction) {
+        static int score;
+    }
     static ImmutableList<BreakScoreEntry> registeredBreakScores;
     static ImmutableMap<Block, BreakScoreEntry> breakScoreMap;
 
@@ -93,6 +97,8 @@ public class ExoStats
 
         // Register the Deferred Register to the mod event bus so tabs get registered
         CUSTOM_STATS_REGISTER.register(modEventBus);
+
+        ModLoadingContext.get().registerConfig(ModConfig.Type.COMMON, Config.SPEC);
     }
 
     @SubscribeEvent
@@ -137,7 +143,6 @@ public class ExoStats
     public void itemCraftEvent(final PlayerEvent.ItemCraftedEvent event)
     {
         if (!event.getEntity().level().isClientSide) {
-            if (event.getEntity().level().random.nextInt(2) == 0) { event.getCrafting().setCount(1); }
             ServerPlayer player = (ServerPlayer) event.getEntity();
             if (player.getStats().getValue(Stats.ITEM_CRAFTED.get(event.getCrafting().getItem())) == event.getCrafting().getCount()) {
                 player.awardStat(UNIQUE_CRAFTS_STAT.get(), 1);
@@ -172,7 +177,7 @@ public class ExoStats
     public void fishedEvent(final ItemFishedEvent event) {
         Player player = event.getEntity();
         for (ItemStack drop : event.getDrops()) {
-            if (drop.isEnchanted()) player.awardStat(FISHING_SCORE.get(), 400);
+            if (drop.isEnchanted()) player.awardStat(FISHING_SCORE.get(), Config.enchantedFishingBonus);
         }
     }
 
@@ -188,13 +193,13 @@ public class ExoStats
 
         AbstractVillager eventVillager = event.getAbstractVillager();
         if (eventVillager instanceof Villager villager) {
-            int bonusMod = event.getMerchantOffer().getResult().is(Items.EMERALD) ? 3 : 1;
+            double bonusMod = event.getMerchantOffer().getResult().is(Items.EMERALD) ? Config.itemsToEmeraldsMultiplier : 1.0;
             VillagerProfession profession = villager.getVillagerData().getProfession();
             if (husbandryVillagers.contains(profession)) {
-                player.awardStat(HUSBANDRY_SCORE.get(), 200 * bonusMod);
+                player.awardStat(HUSBANDRY_SCORE.get(), (int)(Config.villagerTradeScore * bonusMod));
             }
             else if (fishingVillagers.contains(profession)) {
-                player.awardStat(FISHING_SCORE.get(), 200 * bonusMod);
+                player.awardStat(FISHING_SCORE.get(), (int)(Config.villagerTradeScore * bonusMod));
             }
         }
     }
@@ -208,7 +213,7 @@ public class ExoStats
         BreakScoreEntry breakScore = breakScoreMap.get(block);
 
         if (breakScore != null) {
-            Integer score = breakScore.calculatedScore.apply(player, state);
+            Integer score = breakScore.scoreFunction.apply(player, state, Config.breakScores.get(breakScore.blockOrTag));
             if (score != 0) { player.awardStat(breakScore.scoreLocation, score); }
         }
     }
@@ -240,33 +245,37 @@ public class ExoStats
                 MinecraftForge.EVENT_BUS.register(new ExoStatsIntegration());
             }
             registeredBreakScores = ImmutableList.of(
-                    new BreakScoreEntry("#forge:stone", MINING_SCORE.get(), (player, blockState) -> 10),
-                    new BreakScoreEntry("#minecraft:coal_ores", MINING_SCORE.get(), (player, blockState) -> isNotValidTool(player, blockState) ? 0 : 320),
-                    new BreakScoreEntry("#minecraft:copper_ores", MINING_SCORE.get(), (player, blockState) -> isNotValidTool(player, blockState) ? 0 : 240),
-                    new BreakScoreEntry("#minecraft:iron_ores", MINING_SCORE.get(), (player, blockState) -> isNotValidTool(player, blockState) ? 0 : 640),
-                    new BreakScoreEntry("#minecraft:gold_ores", MINING_SCORE.get(), (player, blockState) -> isNotValidTool(player, blockState) ? 0 : 1280),
-                    new BreakScoreEntry("#minecraft:redstone_ores", MINING_SCORE.get(), (player, blockState) -> isNotValidTool(player, blockState) ? 0 : 640),
-                    new BreakScoreEntry("#minecraft:lapis_ores", MINING_SCORE.get(), (player, blockState) -> isNotValidTool(player, blockState) ? 0 : 1280),
-                    new BreakScoreEntry("#minecraft:emerald_ores", MINING_SCORE.get(), (player, blockState) -> isNotValidTool(player, blockState) ? 0 : 2560),
-                    new BreakScoreEntry("#minecraft:diamond_ores", MINING_SCORE.get(), (player, blockState) -> isNotValidTool(player, blockState) ? 0 : 2560),
-                    new BreakScoreEntry("#forge:ores/quartz", MINING_SCORE.get(), (player, blockState) -> isNotValidTool(player, blockState) ? 0 : 320),
-                    new BreakScoreEntry("#forge:ores/niter", MINING_SCORE.get(), (player, blockState) -> isNotValidTool(player, blockState) ? 0 : 320),
-                    new BreakScoreEntry("#forge:ores/tin", MINING_SCORE.get(), (player, blockState) -> isNotValidTool(player, blockState) ? 0 : 640),
-                    new BreakScoreEntry("#forge:ores/silver", MINING_SCORE.get(), (player, blockState) -> isNotValidTool(player, blockState) ? 0 : 1280),
-                    new BreakScoreEntry("#forge:ores/nickel", MINING_SCORE.get(), (player, blockState) -> isNotValidTool(player, blockState) ? 0 : 640),
-                    new BreakScoreEntry("#forge:ores/zinc", MINING_SCORE.get(), (player, blockState) -> isNotValidTool(player, blockState) ? 0 : 320),
-                    new BreakScoreEntry("minecraft:nether_gold_ore", MINING_SCORE.get(), (player, blockState) -> isNotValidTool(player, blockState) ? 0 : 640),
-                    new BreakScoreEntry("majruszsdifficulty:enderium_shard_ore", MINING_SCORE.get(), (player, blockState) -> isNotValidTool(player, blockState) ? 0 : 20480),
-                    new BreakScoreEntry("#minecraft:crops", HUSBANDRY_SCORE.get(), (player, blockState) -> cropScoreOf(blockState)),
-                    new BreakScoreEntry("minecraft:nether_wart", HUSBANDRY_SCORE.get(), (player, blockState) -> blockState.getValue(NetherWartBlock.AGE) < NetherWartBlock.MAX_AGE ? 0 : 100),
-                    new BreakScoreEntry("minecraft:cocoa", HUSBANDRY_SCORE.get(), (player, blockState) -> blockState.getValue(CocoaBlock.AGE) < CocoaBlock.MAX_AGE ? 0 : 100)
+                    new BreakScoreEntry("#forge:stone", MINING_SCORE.get(), (player, blockState, score) -> score),
+                    new BreakScoreEntry("#minecraft:coal_ores", MINING_SCORE.get(), this::miningScoreOf),
+                    new BreakScoreEntry("#minecraft:copper_ores", MINING_SCORE.get(), this::miningScoreOf),
+                    new BreakScoreEntry("#minecraft:iron_ores", MINING_SCORE.get(), this::miningScoreOf),
+                    new BreakScoreEntry("#minecraft:gold_ores", MINING_SCORE.get(), this::miningScoreOf),
+                    new BreakScoreEntry("#minecraft:redstone_ores", MINING_SCORE.get(), this::miningScoreOf),
+                    new BreakScoreEntry("#minecraft:lapis_ores", MINING_SCORE.get(), this::miningScoreOf),
+                    new BreakScoreEntry("#minecraft:emerald_ores", MINING_SCORE.get(), this::miningScoreOf),
+                    new BreakScoreEntry("#minecraft:diamond_ores", MINING_SCORE.get(), this::miningScoreOf),
+                    new BreakScoreEntry("#forge:ores/quartz", MINING_SCORE.get(), this::miningScoreOf),
+                    new BreakScoreEntry("#forge:ores/niter", MINING_SCORE.get(), this::miningScoreOf),
+                    new BreakScoreEntry("#forge:ores/tin", MINING_SCORE.get(), this::miningScoreOf),
+                    new BreakScoreEntry("#forge:ores/silver", MINING_SCORE.get(), this::miningScoreOf),
+                    new BreakScoreEntry("#forge:ores/nickel", MINING_SCORE.get(), this::miningScoreOf),
+                    new BreakScoreEntry("#forge:ores/zinc", MINING_SCORE.get(), this::miningScoreOf),
+                    new BreakScoreEntry("minecraft:nether_gold_ore", MINING_SCORE.get(), this::miningScoreOf),
+                    new BreakScoreEntry("majruszsdifficulty:enderium_shard_ore", MINING_SCORE.get(), this::miningScoreOf),
+                    new BreakScoreEntry("#minecraft:crops", HUSBANDRY_SCORE.get(), this::husbandryScoreOf),
+                    new BreakScoreEntry("minecraft:nether_wart", HUSBANDRY_SCORE.get(), (player, blockState, score) -> blockState.getValue(NetherWartBlock.AGE) < NetherWartBlock.MAX_AGE ? 0 : Config.breakScores.get("#minecraft:crops") * 4),
+                    new BreakScoreEntry("minecraft:cocoa", HUSBANDRY_SCORE.get(), (player, blockState, score) -> blockState.getValue(CocoaBlock.AGE) < CocoaBlock.MAX_AGE ? 0 : Config.breakScores.get("#minecraft:crops") * 4)
             );
         });
     }
-    private boolean isNotValidTool(Player player, BlockState blockState) { return EnchantmentHelper.hasSilkTouch(player.getMainHandItem()) || !player.getMainHandItem().isCorrectToolForDrops(blockState); }
-    private int cropScoreOf(BlockState blockState) {
-        Block block = blockState.getBlock();
-        if (block instanceof CropBlock crop) { return !crop.isMaxAge(blockState) ? 0 : crop.getMaxAge() < 7 ? 100 : 200; }
-        return 0;
+
+    private int miningScoreOf(Player player, BlockState blockState, Integer originalScore) {
+        if (EnchantmentHelper.hasSilkTouch(player.getMainHandItem()) || !player.getMainHandItem().isCorrectToolForDrops(blockState)) return 0;
+        return originalScore;
+    }
+
+    private int husbandryScoreOf(Player player, BlockState blockState, Integer originalScore) {
+        if (!(blockState.getBlock() instanceof CropBlock crop)) { return 0; }
+        return !crop.isMaxAge(blockState) ? 0 : originalScore * (1 + crop.getMaxAge());
     }
 }
