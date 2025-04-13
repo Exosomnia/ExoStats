@@ -1,0 +1,15 @@
+{
+  "stat.exostats.effects_received_stat": "Negative Effects Received",
+  "stat.exostats.xp_pickup_stat": "Total XP Picked Up",
+  "stat.exostats.potions_used_stat": "Potions Thrown or Used",
+  "stat.exostats.enchanted_books_stat": "Enchanted Books Used",
+  "stat.exostats.unique_crafts_stat": "Unique Items Created",
+  "stat.exostats.animals_tamed": "Animals Tamed",
+
+  "stat.exostats.mining_score": "Mining Score",
+  "stat.exostats.occult_score": "Occult Score",
+  "stat.exostats.exploration_score": "Exploration Score",
+  "stat.exostats.combat_score": "Combat Score",
+  "stat.exostats.fishing_score": "Fishing Score",
+  "stat.exostats.husbandry_score": "Husbandry Score"
+}
