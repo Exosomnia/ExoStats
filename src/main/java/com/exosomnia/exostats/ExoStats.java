@@ -17,6 +17,7 @@ import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.entity.npc.VillagerProfession;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.projectile.ThrownPotion;
+import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.alchemy.PotionUtils;
@@ -27,7 +28,6 @@ import net.minecraft.world.level.block.CropBlock;
 import net.minecraft.world.level.block.NetherWartBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraftforge.common.MinecraftForge;
-import net.minecraftforge.common.util.TriPredicate;
 import net.minecraftforge.event.TagsUpdatedEvent;
 import net.minecraftforge.event.entity.EntityJoinLevelEvent;
 import net.minecraftforge.event.entity.living.AnimalTameEvent;
@@ -43,13 +43,12 @@ import net.minecraftforge.fml.config.ModConfig;
 import net.minecraftforge.fml.event.lifecycle.FMLCommonSetupEvent;
 import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
 import net.minecraftforge.registries.DeferredRegister;
+import net.minecraftforge.registries.ForgeRegistries;
 import net.minecraftforge.registries.RegistryObject;
 import org.apache.commons.lang3.function.TriFunction;
 
 import java.util.HashMap;
 import java.util.Map;
-import java.util.function.BiFunction;
-import java.util.function.BiPredicate;
 
 // The value here should match an entry in the META-INF/mods.toml file
 @Mod(ExoStats.MODID)
@@ -72,6 +71,10 @@ public class ExoStats
     public static final RegistryObject<ResourceLocation> COMBAT_SCORE = CUSTOM_STATS_REGISTER.register("combat_score", () -> ResourceLocation.fromNamespaceAndPath(MODID, "combat_score"));
     public static final RegistryObject<ResourceLocation> FISHING_SCORE = CUSTOM_STATS_REGISTER.register("fishing_score", () -> ResourceLocation.fromNamespaceAndPath(MODID, "fishing_score"));
     public static final RegistryObject<ResourceLocation> HUSBANDRY_SCORE = CUSTOM_STATS_REGISTER.register("husbandry_score", () -> ResourceLocation.fromNamespaceAndPath(MODID, "husbandry_score"));
+
+    public static final TagKey<Item> TAG_FISHES = TagKey.create(ForgeRegistries.ITEMS.getRegistryKey(), ResourceLocation.fromNamespaceAndPath("forge", "raw_fishes"));
+    public static final TagKey<Item> TAG_ORE_SCRAPS = TagKey.create(ForgeRegistries.ITEMS.getRegistryKey(), ResourceLocation.fromNamespaceAndPath("exostats", "ore_scraps"));
+    public static final TagKey<Item> TAG_FISHING_TREASURE = TagKey.create(ForgeRegistries.ITEMS.getRegistryKey(), ResourceLocation.fromNamespaceAndPath("exostats", "fishing_treasure_bonus"));
 
     record BreakScoreEntry(String blockOrTag, ResourceLocation scoreLocation, TriFunction<Player, BlockState, Integer, Integer> scoreFunction) {
         static int score;
@@ -144,8 +147,13 @@ public class ExoStats
     {
         if (!event.getEntity().level().isClientSide) {
             ServerPlayer player = (ServerPlayer) event.getEntity();
-            if (player.getStats().getValue(Stats.ITEM_CRAFTED.get(event.getCrafting().getItem())) == event.getCrafting().getCount()) {
+            ItemStack craftedItemStack = event.getCrafting();
+            int craftedAmount = craftedItemStack.getCount();
+            if (player.getStats().getValue(Stats.ITEM_CRAFTED.get(craftedItemStack.getItem())) == craftedAmount) {
                 player.awardStat(UNIQUE_CRAFTS_STAT.get(), 1);
+            }
+            if (craftedItemStack.is(TAG_ORE_SCRAPS)) {
+                player.awardStat(MINING_SCORE.get(), Config.netheriteXPAmount * craftedAmount);
             }
         }
         else {
@@ -161,8 +169,13 @@ public class ExoStats
     {
         if (!event.getEntity().level().isClientSide) {
             ServerPlayer player = (ServerPlayer) event.getEntity();
-            if (player.getStats().getValue(Stats.ITEM_CRAFTED.get(event.getSmelting().getItem())) == event.getSmelting().getCount()) {
+            ItemStack smeltedItemStack = event.getSmelting();
+            int smeltedAmount = smeltedItemStack.getCount();
+            if (player.getStats().getValue(Stats.ITEM_CRAFTED.get(smeltedItemStack.getItem())) == smeltedAmount) {
                 player.awardStat(UNIQUE_CRAFTS_STAT.get(), 1);
+            }
+            if (smeltedItemStack.is(TAG_ORE_SCRAPS)) {
+                player.awardStat(MINING_SCORE.get(), Config.netheriteXPAmount * smeltedAmount);
             }
         }
         else {
@@ -177,7 +190,7 @@ public class ExoStats
     public void fishedEvent(final ItemFishedEvent event) {
         Player player = event.getEntity();
         for (ItemStack drop : event.getDrops()) {
-            if (drop.isEnchanted()) player.awardStat(FISHING_SCORE.get(), Config.enchantedFishingBonus);
+            if (drop.isEnchanted() || drop.is(TAG_FISHING_TREASURE)) player.awardStat(FISHING_SCORE.get(), Config.enchantedFishingBonus);
         }
     }
 
@@ -193,12 +206,13 @@ public class ExoStats
 
         AbstractVillager eventVillager = event.getAbstractVillager();
         if (eventVillager instanceof Villager villager) {
-            double bonusMod = event.getMerchantOffer().getResult().is(Items.EMERALD) ? Config.itemsToEmeraldsMultiplier : 1.0;
             VillagerProfession profession = villager.getVillagerData().getProfession();
             if (husbandryVillagers.contains(profession)) {
+                double bonusMod = event.getMerchantOffer().getResult().is(Items.EMERALD) ? Config.itemsToEmeraldsMultiplierHusbandry : 1.0;
                 player.awardStat(HUSBANDRY_SCORE.get(), (int)(Config.villagerTradeScore * bonusMod));
             }
             else if (fishingVillagers.contains(profession)) {
+                double bonusMod = event.getMerchantOffer().getCostA().is(TAG_FISHES) ? Config.fishToEmeraldsMultiplier : 1.0;
                 player.awardStat(FISHING_SCORE.get(), (int)(Config.villagerTradeScore * bonusMod));
             }
         }
@@ -264,7 +278,8 @@ public class ExoStats
                     new BreakScoreEntry("majruszsdifficulty:enderium_shard_ore", MINING_SCORE.get(), this::miningScoreOf),
                     new BreakScoreEntry("#minecraft:crops", HUSBANDRY_SCORE.get(), this::husbandryScoreOf),
                     new BreakScoreEntry("minecraft:nether_wart", HUSBANDRY_SCORE.get(), (player, blockState, score) -> blockState.getValue(NetherWartBlock.AGE) < NetherWartBlock.MAX_AGE ? 0 : Config.breakScores.get("#minecraft:crops") * 4),
-                    new BreakScoreEntry("minecraft:cocoa", HUSBANDRY_SCORE.get(), (player, blockState, score) -> blockState.getValue(CocoaBlock.AGE) < CocoaBlock.MAX_AGE ? 0 : Config.breakScores.get("#minecraft:crops") * 4)
+                    new BreakScoreEntry("minecraft:cocoa", HUSBANDRY_SCORE.get(), (player, blockState, score) -> blockState.getValue(CocoaBlock.AGE) < CocoaBlock.MAX_AGE ? 0 : Config.breakScores.get("#minecraft:crops") * 4),
+                    new BreakScoreEntry("minecraft:amethyst_cluster", OCCULT_SCORE.get(), this::miningScoreOf)
             );
         });
     }

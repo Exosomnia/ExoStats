@@ -12,25 +12,26 @@ public class Config
     private static String defaultBreakScores;
     static {
         defaultBreakScores = "#forge:stone,10;" +
-                "#minecraft:coal_ores,320;" +
-                "#minecraft:copper_ores,240;" +
-                "#minecraft:iron_ores,640;" +
-                "#minecraft:gold_ores,1280;" +
-                "#minecraft:redstone_ores,640;" +
-                "#minecraft:lapis_ores,1280;" +
-                "#minecraft:emerald_ores,2560;" +
-                "#minecraft:diamond_ores,2560;" +
-                "#forge:ores/quartz,320;" +
-                "#forge:ores/niter,320;" +
-                "#forge:ores/tin,640;" +
-                "#forge:ores/silver,1280;" +
-                "#forge:ores/nickel,640;" +
-                "#forge:ores/zinc,320;" +
-                "minecraft:nether_gold_ore,640;" +
-                "majruszsdifficulty:enderium_shard_ore,20480;" +
-                "#minecraft:crops,25;" +
+                "#minecraft:coal_ores,480;" +
+                "#minecraft:copper_ores,360;" +
+                "#minecraft:iron_ores,960;" +
+                "#minecraft:gold_ores,1920;" +
+                "#minecraft:redstone_ores,960;" +
+                "#minecraft:lapis_ores,1920;" +
+                "#minecraft:emerald_ores,3840;" +
+                "#minecraft:diamond_ores,3840;" +
+                "#forge:ores/quartz,960;" +
+                "#forge:ores/niter,480;" +
+                "#forge:ores/tin,960;" +
+                "#forge:ores/silver,1920;" +
+                "#forge:ores/nickel,960;" +
+                "#forge:ores/zinc,480;" +
+                "minecraft:nether_gold_ore,1920;" +
+                "majruszsdifficulty:enderium_shard_ore,28800;" +
+                "#minecraft:crops,40;" +
                 "minecraft:nether_wart,320;" +
-                "minecraft:cocoa,240;";
+                "minecraft:cocoa,160;" +
+                "minecraft:amethyst_cluster,960;";
     }
 
 
@@ -40,13 +41,21 @@ public class Config
             .comment("Score awarded when trading with villagers")
             .defineInRange("villagerTradeScore", 200, 0, Integer.MAX_VALUE);
 
-    private static final ForgeConfigSpec.DoubleValue ITEMS_TO_EMERALDS_MULTIPLIER = BUILDER
-            .comment("Score multiplier with trading items to emeralds with villagers.")
-            .defineInRange("itemsToEmeraldsMultiplier", 3.0, 0.0, Double.MAX_VALUE);
+    private static final ForgeConfigSpec.DoubleValue ITEMS_TO_EMERALDS_MULTIPLIER_HUSBANDRY = BUILDER
+            .comment("Score multiplier when trading items to emeralds with husbandry villagers.")
+            .defineInRange("itemsToEmeraldsMultiplier", 9.6, 0.0, Double.MAX_VALUE);
+
+    private static final ForgeConfigSpec.DoubleValue FISH_TO_EMERALDS_MULTIPLIER = BUILDER
+            .comment("Score multiplier when trading fish to emeralds with fisher villagers.")
+            .defineInRange("fishToEmeraldsMultiplier", 24.0, 0.0, Double.MAX_VALUE);
 
     private static final ForgeConfigSpec.IntValue ENCHANTED_FISHING_BONUS = BUILDER
-            .comment("Fishing score bonus when fishing enchanted items")
-            .defineInRange("enchantedFishingBonus", 400, 0, Integer.MAX_VALUE);
+            .comment("Fishing score bonus when fishing treasure items")
+            .defineInRange("enchantedFishingBonus", 1600, 0, Integer.MAX_VALUE);
+
+    private static final ForgeConfigSpec.IntValue NETHERITE_XP = BUILDER
+            .comment("Mining xp when smelting netherite scrap")
+            .defineInRange("netheriteXPAmount", 11520, 0, Integer.MAX_VALUE);
 
     private static final ForgeConfigSpec.ConfigValue<String> BREAK_SCORES = BUILDER
             .comment("scores awarded when breaking certain blocks")
@@ -56,15 +65,19 @@ public class Config
     static final ForgeConfigSpec SPEC = BUILDER.build();
 
     public static int villagerTradeScore;
-    public static double itemsToEmeraldsMultiplier;
+    public static double itemsToEmeraldsMultiplierHusbandry;
+    public static double fishToEmeraldsMultiplier;
     public static int enchantedFishingBonus;
+    public static int netheriteXPAmount;
     public static ImmutableMap<String, Integer> breakScores;
 
     @SubscribeEvent
     static void onLoad(final ModConfigEvent event) {
         villagerTradeScore = VILLAGER_TRADE_SCORE.get();
-        itemsToEmeraldsMultiplier = ITEMS_TO_EMERALDS_MULTIPLIER.get();
+        itemsToEmeraldsMultiplierHusbandry = ITEMS_TO_EMERALDS_MULTIPLIER_HUSBANDRY.get();
+        fishToEmeraldsMultiplier = FISH_TO_EMERALDS_MULTIPLIER.get();
         enchantedFishingBonus = ENCHANTED_FISHING_BONUS.get();
+        netheriteXPAmount = NETHERITE_XP.get();
 
         //Parse mining scores
         ImmutableMap.Builder<String,Integer> breakScoreBuilder = new ImmutableMap.Builder<>();
